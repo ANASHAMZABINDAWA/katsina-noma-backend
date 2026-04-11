@@ -7,10 +7,26 @@ const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// CORS Configuration - Allow both local and Vercel frontend
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'https://katsina-noma-assistant-2r8d.vercel.app/'],
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type']
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'https://katsina-noma-assistant-2r8d.vercel.app',
+      'https://katsina-noma-assistant.vercel.app'
+    ];
+
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 app.use(express.json());
