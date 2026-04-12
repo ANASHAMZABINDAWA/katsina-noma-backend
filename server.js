@@ -1,136 +1,34 @@
-// server.js - Katsina Noma AI with Google GenAI + Language Support
+// server.js - Katsina Noma AI Backend (Fixed CORS + Gemini 2.5 Flash)
 require('dotenv').config();
+
 const express = require('express');
-const { GoogleGenAI } = require('@google/genai');
 const cors = require('cors');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// CORS Configuration - Allow both local and Vercel frontend
+// ====================== IMPROVED CORS CONFIGURATION ======================
 app.use(cors({
-  origin: function (origin, callback) {
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'https://katsina-noma-assistant-2r8d.vercel.app',
-      'https://katsina-noma-assistant.vercel.app'
-    ];
-
-    // Allow requests with no origin (like mobile apps or curl)
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'https://katsina-noma-assistant-2r8d.vercel.app',
+    'https://katsina-noma-assistant.vercel.app'
+  ],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  credentials: true,
+  maxAge: 86400 // Cache preflight for 24 hours
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Handle preflight OPTIONS requests
+app.options('*', cors());
 
-const genAI = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+app.use(express.json({ limit: '50mb' }));        // Increased limit for image uploads
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Base system prompt (common part)
-const BASE_PROMPT = `
-You are Katsina Noma AI 🌾, a practical and friendly farming assistant for farmers in Katsina State, Nigeria.
-Focus ONLY on farming topics relevant to Katsina State: masara (maize), gero (millet), dawa (sorghum), gyada (groundnut), wake (cowpea), etc.
-Give clear, step-by-step advice on:
-- Best planting time, spacing, depth, and techniques
-- Soil fertility and use of organic manure/compost
-- Water harvesting, irrigation, and drought management
-- Common pests and diseases (striga, armyworm, downy mildew, rust, etc.) and safe/organic control methods
-- Harvesting and basic marketing tips
-
-Be polite, encouraging, and easy to understand. Use simple language.
-If you are not very sure about something specific to the current season or location, say: "I recommend you also ask your local extension officer (ADP) for the latest advice."
-`;
-
-// Language-specific instructions
-function getSystemPrompt(language) {
-  if (language === "ha") {
-    return BASE_PROMPT + `
-Answer in **simple Hausa**, mixing with English only when necessary for farming terms (e.g. "masara", "striga", "manure").
-Use everyday language that a farmer in Katsina will easily understand.
-`;
-  } else {
-    // English (default)
-    return BASE_PROMPT + `
-Answer in **simple English**, mixing with Hausa terms when helpful (e.g. "masara (maize)", "gero (millet)").
-Keep responses clear and practical.
-`;
-  }
-}
-
-let chatHistory = []; // Simple conversation memory
-
-app.get('/', (req, res) => {
-  res.send('✅ Katsina Noma AI Server is running with Language Support! 🌾');
-});
-
-app.post('/chat', async (req, res) => {
-  try {
-    const userMessage = req.body.message || req.body.text;
-    const language = req.body.language || "en";   // Default to English
-
-    if (!userMessage || typeof userMessage !== 'string' || userMessage.trim() === '') {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Please send a message" 
-      });
-    }
-
-    console.log(`Received message in ${language}:`, userMessage);
-
-    const systemPrompt = getSystemPrompt(language);
-
-    // Build contents array with system prompt first, then history
-    const contents = [
-      { role: "user", parts: [{ text: systemPrompt }] },
-      ...chatHistory,
-      { role: "user", parts: [{ text: userMessage }] }
-    ];
-
-    const result = await genAI.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: contents,
-    });
-
-    const responseText = result.text || "Sorry, I couldn't generate a response.";
-
-    // Save to history for next messages (keeps conversation context)
-    chatHistory.push(
-      { role: "user", parts: [{ text: userMessage }] },
-      { role: "model", parts: [{ text: responseText }] }
-    );
-
-    // Optional: Keep only last 10 exchanges to save tokens
-    if (chatHistory.length > 20) {
-      chatHistory = chatHistory.slice(-20);
-    }
-
-    res.json({
-      success: true,
-      reply: responseText.trim(),
-    });
-
-  } catch (error) {
-    console.error("Gemini API Error:", error.message || error);
-    res.status(500).json({
-      success: false,
-      error: "Sorry, the AI is busy right now. Please try again in a moment.",
-      details: error.message
-    });
-  }
-});
-
-// ====================== PEST IDENTIFICATION ENDPOINT ======================
-app.post('/pest-identify', async (req, res) => {
+// ====================== PLANT IDENTIFICATION ENDPOINT ======================
+app.post('/plant-identify', async (req, res) => {
   try {
     const { imageBase64, language = "en" } = req.body;
 
@@ -138,28 +36,23 @@ app.post('/pest-identify', async (req, res) => {
       return res.status(400).json({ error: "No image provided" });
     }
 
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Add this to your .env
-
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
     if (!GEMINI_API_KEY) {
       return res.status(500).json({ error: "Gemini API key not configured" });
     }
 
     const isHausa = language === "ha";
 
-    const prompt = `You are an expert agricultural pest identification assistant for farmers in Katsina State, Nigeria.
+    const prompt = `You are a farming expert in Katsina State, Nigeria.
+Analyze the plant/leaf in the image and identify it.
 
-Analyze the image and identify the pest or disease affecting the crop.
+Respond in ${isHausa ? "simple Hausa" : "simple English"}.
 
-Respond in ${isHausa ? "Hausa language" : "English language"}.
-
-Provide:
-1. The common name of the pest or disease
-2. Scientific name (if known)
-3. How it damages the crop
-4. Recommended control methods (prefer organic/local methods first, then chemical if necessary)
-5. Prevention tips suitable for smallholder farmers in Katsina
-
-Be practical and easy to understand.`;
+Include:
+- Common name (and local Hausa name if known)
+- Scientific name
+- Whether it's a crop, weed, or wild plant
+- Brief farming tips or warnings for Katsina farmers`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -173,7 +66,7 @@ Be practical and easy to understand.`;
               {
                 inlineData: {
                   mimeType: "image/jpeg",
-                  data: imageBase64.split(',')[1]   // remove "data:image/jpeg;base64,"
+                  data: imageBase64.split(',')[1]
                 }
               }
             ]
@@ -188,24 +81,159 @@ Be practical and easy to understand.`;
       throw new Error(data.error?.message || "Gemini API error");
     }
 
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!reply) throw new Error("No response from Gemini");
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Could not identify the plant.";
 
     res.json({ 
-      reply: reply,
-      success: true 
+      success: true,
+      reply: reply.trim()
+    });
+
+  } catch (error) {
+    console.error("Plant Identification Error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to identify the plant. Please try again with better lighting." 
+    });
+  }
+});
+
+// ====================== PEST IDENTIFICATION ENDPOINT ======================
+app.post('/pest-identify', async (req, res) => {
+  try {
+    const { imageBase64, language = "en" } = req.body;
+
+    if (!imageBase64) {
+      return res.status(400).json({ error: "No image provided" });
+    }
+
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const isHausa = language === "ha";
+
+    const prompt = `You are an expert agricultural pest and disease identification assistant for farmers in Katsina State, Nigeria.
+
+Analyze the image and identify the pest, insect, or disease.
+
+Respond in ${isHausa ? "simple Hausa" : "simple English"}.
+
+Provide:
+1. Common name of the pest or disease
+2. How it damages the crop
+3. Recommended control methods (prefer organic and local methods first)
+4. Prevention tips suitable for smallholder farmers in Katsina
+
+Be practical, clear, and encouraging.`;
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: "image/jpeg",
+                  data: imageBase64.split(',')[1]
+                }
+              }
+            ]
+          }]
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || "Gemini API error");
+    }
+
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Could not identify the pest.";
+
+    res.json({ 
+      success: true,
+      reply: reply.trim()
     });
 
   } catch (error) {
     console.error("Pest Identification Error:", error);
     res.status(500).json({ 
-      error: "Failed to identify pest. Please try again." 
+      success: false,
+      error: "Failed to identify the pest. Please try again." 
     });
   }
 });
 
+// ====================== CHAT ASSISTANT ENDPOINT ======================
+app.post('/chat', async (req, res) => {
+  try {
+    const { message, language = "en" } = req.body;
+
+    if (!message || typeof message !== 'string' || message.trim() === '') {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Please send a message" 
+      });
+    }
+
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const isHausa = language === "ha";
+
+    const systemPrompt = `You are Katsina Noma Assistant 🌾, a friendly and practical farming assistant for farmers in Katsina State, Nigeria.
+Focus on local crops: gero, dawa, gyada, wake, masara, cotton, etc.
+Give clear, step-by-step, actionable advice.
+Be encouraging and easy to understand.
+Respond in ${isHausa ? "simple Hausa" : "simple English"}.`;
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: "user", parts: [{ text: message }] }]
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || "Gemini API error");
+    }
+
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I couldn't generate a response.";
+
+    res.json({
+      success: true,
+      reply: reply.trim()
+    });
+
+  } catch (error) {
+    console.error("Chat Error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Sorry, the AI is busy right now. Please try again."
+    });
+  }
+});
+
+app.get('/', (req, res) => {
+  res.send('✅ Katsina Noma Backend is running with Gemini 2.5 Flash');
+});
+
 app.listen(port, () => {
-  console.log(`🚀 Katsina Noma AI Server running on http://localhost:${port}`);
-  console.log(`🌾 Language support enabled (en/ha)`);
+  console.log(`🚀 Server running on port ${port}`);
+  console.log(`🌾 Endpoints: /chat, /plant-identify, /pest-identify`);
 });
