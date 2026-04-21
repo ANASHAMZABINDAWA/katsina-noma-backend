@@ -1,21 +1,15 @@
 {
-  "name": "amaj-resume-backend",
+  "name": "katsina-noma-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Serverless backend for Katsina Noma Assistant",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vercel dev"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "@google/genai": "^1.48.0",
     "cors": "^2.8.6",
-    "dotenv": "^17.4.1",
-    "express": "^5.2.1",
-    "openai": "^6.27.0"
+    "dotenv": "^17.4.2",
+    "express": "^4.22.1",
+    "serverless-http": "^3.2.0"
   }
 }
