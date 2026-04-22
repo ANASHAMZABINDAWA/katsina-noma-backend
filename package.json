@@ -2,7 +2,7 @@
   "name": "katsina-noma-backend",
   "version": "1.0.0",
   "description": "Serverless backend for Katsina Noma Assistant",
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
     "dev": "vercel dev"
   },
@@ -10,6 +10,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^4.22.1",
+    "node-fetch": "^3.3.2",
     "serverless-http": "^3.2.0"
   }
 }
